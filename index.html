@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>でんしゃ うんてん シミュレーター</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --panel:#1c2733; --panel2:#26333f; --edge:#0d141b;
+    --amber:#ffb547; --green:#3ddc84; --red:#ff5a5a; --yellow:#ffd93d;
+    --ink:#f2f6f9; --sub:#9fb2c1;
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ width:100%; height:100%; overflow:hidden; touch-action:none;
+    font-family:"BIZ UDPGothic", sans-serif; background:#000; color:var(--ink);
+    user-select:none; -webkit-user-select:none; }
+  #app{ position:fixed; inset:0; }
+  canvas#gl{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  ruby rt{ font-size:0.45em; color:inherit; opacity:.85; }
+
+  /* ---------- 上部：時刻表と時計 ---------- */
+  #topbar{ position:absolute; top:0; left:0; right:0; display:flex; gap:8px;
+    padding:8px calc(8px + env(safe-area-inset-right)) 0 calc(8px + env(safe-area-inset-left));
+    align-items:flex-start; pointer-events:none; z-index:5; }
+  .plate{ background:rgba(18,26,34,.88); border:2px solid #35485a; border-radius:12px;
+    padding:6px 10px; box-shadow:0 3px 10px rgba(0,0,0,.45); }
+  #clockPlate{ text-align:center; min-width:118px; }
+  #clock{ font-size:26px; font-weight:700; letter-spacing:1px; color:var(--amber);
+    font-variant-numeric:tabular-nums; }
+  #clockPlate .lbl{ font-size:11px; color:var(--sub); }
+  #timetable{ flex:1; display:flex; gap:6px; overflow:hidden; }
+  .tt-cell{ flex:1; text-align:center; border-radius:8px; padding:4px 2px;
+    background:rgba(255,255,255,.05); border:2px solid transparent; min-width:0; }
+  .tt-cell.now{ border-color:var(--amber); background:rgba(255,181,71,.12); }
+  .tt-cell.done{ opacity:.55; }
+  .tt-name{ font-size:13px; font-weight:700; white-space:nowrap; }
+  .tt-time{ font-size:15px; font-weight:700; color:var(--amber); font-variant-numeric:tabular-nums; }
+  .tt-eval{ font-size:11px; height:14px; }
+  #statePlate{ min-width:96px; text-align:center; }
+  #stateLabel{ font-size:15px; font-weight:700; color:var(--green); white-space:nowrap; }
+  #statePlate .lbl{ font-size:11px; color:var(--sub); }
+
+  /* ---------- 中央メッセージ ---------- */
+  #msg{ position:absolute; top:22%; left:50%; transform:translateX(-50%);
+    font-size:30px; font-weight:700; text-align:center; z-index:6;
+    text-shadow:0 2px 6px rgba(0,0,0,.7); pointer-events:none;
+    transition:opacity .3s; opacity:0; max-width:92%; }
+  #msg.show{ opacity:1; }
+  #subMsg{ position:absolute; top:34%; left:50%; transform:translateX(-50%);
+    font-size:18px; text-align:center; z-index:6; text-shadow:0 2px 6px rgba(0,0,0,.7);
+    pointer-events:none; transition:opacity .3s; opacity:0; }
+  #subMsg.show{ opacity:1; }
+
+  /* ---------- 運転台（下部） ---------- */
+  #cabPanel{ position:absolute; left:0; right:0; bottom:0; z-index:5;
+    background:linear-gradient(#2a3846,var(--panel) 30%,var(--edge));
+    border-top:4px solid #46596c; height:196px;
+    display:flex; align-items:stretch; gap:6px;
+    padding:8px calc(10px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left)); }
+  .lever-block{ display:flex; flex-direction:column; align-items:center; width:126px; }
+  .lever-title{ font-size:14px; font-weight:700; margin-bottom:2px; }
+  .lever{ position:relative; flex:1; width:92px; border-radius:14px;
+    background:linear-gradient(90deg,#10171e,#202c37 45%,#10171e);
+    border:2px solid #46596c; box-shadow:inset 0 0 12px rgba(0,0,0,.7); }
+  .lever .slot{ position:absolute; left:50%; top:10px; bottom:10px; width:10px;
+    transform:translateX(-50%); background:#05090d; border-radius:5px;
+    box-shadow:inset 0 0 5px #000; }
+  .lever .tick{ position:absolute; right:6px; font-size:10px; color:var(--sub);
+    transform:translateY(-50%); font-weight:700; }
+  .handle{ position:absolute; left:50%; transform:translate(-50%,-50%);
+    width:84px; height:46px; border-radius:10px;
+    background:linear-gradient(#8fa4b5,#5b6f80 55%,#3d4e5d);
+    border:2px solid #24303b; box-shadow:0 4px 8px rgba(0,0,0,.55);
+    display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-size:15px; color:#101820; }
+  #notchLever .handle{ background:linear-gradient(#ffd9a0,#e8a34e 55%,#b06f1e); }
+  #brakeLever .handle{ background:linear-gradient(#ffb3b3,#e05c5c 55%,#a02c2c); }
+
+  /* ---------- 中央計器 ---------- */
+  #gauges{ flex:1; display:flex; flex-direction:column; align-items:center;
+    justify-content:space-between; padding:2px 4px; min-width:0; }
+  #speedo{ text-align:center; }
+  #speedVal{ font-size:46px; font-weight:700; color:var(--green); line-height:1;
+    font-variant-numeric:tabular-nums; }
+  #speedo .lbl{ font-size:12px; color:var(--sub); }
+  #speedBar{ width:min(300px,60vw); height:10px; border-radius:5px; background:#05090d;
+    overflow:hidden; border:1px solid #46596c; margin:4px auto 0; }
+  #speedBarFill{ height:100%; width:0%; background:linear-gradient(90deg,var(--green),var(--yellow),var(--red)); }
+  #infoRow{ display:flex; gap:8px; width:100%; justify-content:center; flex-wrap:wrap; }
+  .info-chip{ background:rgba(255,255,255,.06); border:1px solid #46596c; border-radius:10px;
+    padding:4px 10px; font-size:14px; font-weight:700; display:flex; align-items:center; gap:6px;
+    min-height:32px; white-space:nowrap; }
+  .sig-lamp{ width:16px; height:16px; border-radius:50%; background:#333;
+    box-shadow:inset 0 0 3px #000; }
+  .sig-lamp.g{ background:var(--green); box-shadow:0 0 8px var(--green); }
+  .sig-lamp.y{ background:var(--yellow); box-shadow:0 0 8px var(--yellow); }
+  .sig-lamp.r{ background:var(--red); box-shadow:0 0 8px var(--red); }
+  #btnRow{ display:flex; gap:8px; }
+  .btn{ min-width:44px; min-height:44px; border:2px solid #46596c; border-radius:12px;
+    background:var(--panel2); color:var(--ink); font-family:inherit; font-size:14px;
+    font-weight:700; padding:4px 12px; cursor:pointer; }
+  .btn:active{ transform:scale(.96); background:#33465a; }
+  .btn.primary{ background:var(--amber); color:#221200; border-color:#c78528; }
+
+  /* ---------- オーバーレイ ---------- */
+  .overlay{ position:absolute; inset:0; z-index:20; background:rgba(6,12,18,.92);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; padding:20px; text-align:center; }
+  .overlay h1{ font-size:34px; color:var(--amber); }
+  .overlay p{ font-size:17px; line-height:1.9; color:var(--ink); }
+  .bigbtn{ font-size:24px; padding:16px 44px; border-radius:16px; }
+  #resultOverlay{ display:none; }
+  #resultTable{ border-collapse:collapse; font-size:15px; }
+  #resultTable th,#resultTable td{ border:1px solid #46596c; padding:6px 10px; }
+  #resultTable th{ background:rgba(255,255,255,.08); }
+  #title-award{ font-size:30px; color:var(--amber); font-weight:700; }
+  .stars{ font-size:26px; color:var(--yellow); letter-spacing:4px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="gl"></canvas>
+
+  <div id="topbar">
+    <div class="plate" id="clockPlate">
+      <div id="clock">9:00:00</div>
+      <div class="lbl"><ruby>今<rt>いま</rt></ruby>の<ruby>時刻<rt>じこく</rt></ruby></div>
+    </div>
+    <div class="plate" id="timetable"></div>
+    <div class="plate" id="statePlate">
+      <div id="stateLabel">出発前</div>
+      <div class="lbl">じょうたい</div>
+    </div>
+  </div>
+
+  <div id="msg"></div>
+  <div id="subMsg"></div>
+
+  <div id="cabPanel">
+    <div class="lever-block">
+      <div class="lever-title"><ruby>ブレーキ<rt>とまる</rt></ruby></div>
+      <div class="lever" id="brakeLever">
+        <div class="slot"></div>
+        <div class="handle" id="brakeHandle">B0</div>
+      </div>
+    </div>
+
+    <div id="gauges">
+      <div id="speedo">
+        <div id="speedVal">0</div>
+        <div class="lbl">スピード（km/h）</div>
+        <div id="speedBar"><div id="speedBarFill"></div></div>
+      </div>
+      <div id="infoRow">
+        <div class="info-chip"><span class="sig-lamp" id="sigLamp"></span>
+          <span id="sigText"><ruby>信号<rt>しんごう</rt></ruby> ---</span></div>
+        <div class="info-chip">🚉 <span id="distText">--- m</span></div>
+      </div>
+      <div id="btnRow">
+        <button class="btn" id="viewBtn">👁 <ruby>視点<rt>してん</rt></ruby></button>
+        <button class="btn" id="muteBtn">🔊 おと</button>
+      </div>
+    </div>
+
+    <div class="lever-block">
+      <div class="lever-title"><ruby>ノッチ<rt>すすむ</rt></ruby></div>
+      <div class="lever" id="notchLever">
+        <div class="slot"></div>
+        <div class="handle" id="notchHandle">N0</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="startOverlay">
+    <h1>🚃 でんしゃ うんてん シミュレーター</h1>
+    <p>
+      <ruby>右<rt>みぎ</rt></ruby>の「ノッチ」を<ruby>上<rt>う</rt></ruby>にあげると すすむよ。<br>
+      <ruby>左<rt>ひだり</rt></ruby>の「ブレーキ」を<ruby>上<rt>う</rt></ruby>にあげると とまるよ。<br>
+      <ruby>信号<rt>しんごう</rt></ruby>と<ruby>時刻表<rt>じこくひょう</rt></ruby>を まもって、<br>
+      <ruby>駅<rt>えき</rt></ruby>の「とまれ<ruby>線<rt>せん</rt></ruby>」に ピタッと とめよう！
+    </p>
+    <button class="btn primary bigbtn" id="startBtn">うんてん かいし！</button>
+  </div>
+
+  <div class="overlay" id="resultOverlay">
+    <h1>🏁 うんてん おわり！</h1>
+    <table id="resultTable"></table>
+    <div class="stars" id="starLine"></div>
+    <div id="title-award"></div>
+    <button class="btn primary bigbtn" id="retryBtn">もういちど</button>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+
+/* =====================================================================
+   設定
+===================================================================== */
+const TEST_MODE = new URLSearchParams(location.search).has('test');
+
+const CFG = {
+  timeScale: 4,                 // ゲーム内時間の倍率
+  startClock: 9 * 3600,         // 9:00:00（秒）
+  maxSpeed: 22.2,               // 80 km/h
+  notchMax: 4,
+  brakeMax: 8,
+  accelPerNotch: 0.65,          // m/s^2
+  decelPerBrake: 0.55,          // m/s^2
+  drag: 0.02,
+  yellowLimit: 12.5,            // 45 km/h
+  stopJudgeRange: 40,           // 停止判定を行う駅ターゲットからの範囲(m)
+  overrunLimit: 45,             // これを超えたらオーバーラン
+  dwellSec: 6,                  // 停車時間（実時間秒）
+  onTimeWindow: 20,             // 定刻とみなす誤差（ゲーム内秒）
+  hardBrakeDecel: 2.6,          // 停止直前この減速度以上なら急ブレーキ判定
+};
+
+const STATIONS = [
+  { name: '桜台',  kana: 'さくらだい', s: 0    },
+  { name: '川原',  kana: 'かわら',     s: 500  },
+  { name: '山下',  kana: 'やました',   s: 1000 },
+  { name: '海浜',  kana: 'かいひん',   s: 1500 },
+];
+// ゲーム内時刻（秒）：到着予定
+const SCHEDULE = [
+  { arr: null,               dep: CFG.startClock + 0   },        // 桜台（出発のみ）
+  { arr: CFG.startClock + 180, dep: CFG.startClock + 240 },      // 川原 9:03着 9:04発
+  { arr: CFG.startClock + 420, dep: CFG.startClock + 480 },      // 山下 9:07着 9:08発
+  { arr: CFG.startClock + 660, dep: null },                      // 海浜 9:11着
+];
+const SIGNALS = [
+  { s: 250,  phase: 0  },
+  { s: 750,  phase: 30 },
+  { s: 1250, phase: 60 },
+];
+// 信号サイクル（ゲーム内秒）: 緑40 → 黄20 → 赤30 → …
+const SIG_CYCLE = 90, SIG_G = 40, SIG_Y = 20;
+
+/* =====================================================================
+   タイマー管理（状態遷移から分離）
+===================================================================== */
+class Timers {
+  constructor(){ this.map = new Map(); }
+  set(name, sec){ this.map.set(name, sec); }
+  clear(name){ this.map.delete(name); }
+  clearAll(){ this.map.clear(); }
+  update(dt){
+    for (const [k, v] of this.map) this.map.set(k, Math.max(0, v - dt));
+  }
+  done(name){ return this.map.has(name) && this.map.get(name) <= 0; }
+  running(name){ return this.map.has(name) && this.map.get(name) > 0; }
+  get(name){ return this.map.get(name) ?? 0; }
+}
+
+/* =====================================================================
+   物理（cannon-es：1次元の速度・慣性計算に使用）
+===================================================================== */
+class TrainPhysics {
+  constructor(){
+    this.world = new CANNON.World({ gravity: new CANNON.Vec3(0, 0, 0) });
+    this.body = new CANNON.Body({ mass: 30000, shape: new CANNON.Box(new CANNON.Vec3(1.4, 1.8, 10)) });
+    this.body.position.set(0, 0, 0);   // x を線路上の位置 s(m) として使う
+    this.world.addBody(this.body);
+    this.notch = 0;     // 0..4
+    this.brake = 0;     // 0..8
+    this.eb = false;    // 非常ブレーキ強制
+    this.lastAccel = 0;
+  }
+  get s(){ return this.body.position.x; }
+  get v(){ return this.body.velocity.x; }
+  step(dt){
+    const m = this.body.mass;
+    const v = this.v;
+    const brakeLv = this.eb ? CFG.brakeMax : this.brake;
+    let a = this.notch * CFG.accelPerNotch;
+    if (brakeLv > 0 || this.eb) a = 0;                      // ブレーキ中は力行しない
+    let dec = brakeLv * CFG.decelPerBrake + CFG.drag * v;
+    let force = m * a - m * dec * Math.sign(Math.max(v, 0));
+    if (v <= 0.001 && force < 0) force = 0;                 // 後退しない
+    this.body.force.set(force, 0, 0);
+    this.world.step(dt);
+    if (this.body.velocity.x < 0) this.body.velocity.x = 0;
+    const cap = CFG.maxSpeed;
+    if (this.body.velocity.x > cap) this.body.velocity.x = cap;
+    this.lastAccel = (this.body.velocity.x - v) / dt;
+  }
+  stopNow(){ this.body.velocity.x = 0; }
+}
+
+/* =====================================================================
+   サウンド（Web Audio API）
+===================================================================== */
+class Sound {
+  constructor(){
+    this.ctx = null; this.muted = false;
+    this.motorOsc = null; this.motorGain = null;
+    this.brakeSrc = null; this.brakeGain = null;
+    this.warnTimer = null;
+  }
+  init(){
+    if (this.ctx) return;
+    try {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const c = this.ctx;
+      // モーター音（VVVF風）
+      this.motorOsc = c.createOscillator();
+      this.motorOsc.type = 'sawtooth';
+      this.motorGain = c.createGain(); this.motorGain.gain.value = 0;
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+      this.motorOsc.connect(lp); lp.connect(this.motorGain); this.motorGain.connect(c.destination);
+      this.motorOsc.start();
+      // ブレーキ音（ノイズ）
+      const len = c.sampleRate * 1;
+      const buf = c.createBuffer(1, len, c.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      this.brakeSrc = c.createBufferSource(); this.brakeSrc.buffer = buf; this.brakeSrc.loop = true;
+      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2400; bp.Q.value = 1.2;
+      this.brakeGain = c.createGain(); this.brakeGain.gain.value = 0;
+      this.brakeSrc.connect(bp); bp.connect(this.brakeGain); this.brakeGain.connect(c.destination);
+      this.brakeSrc.start();
+    } catch (e) { this.ctx = null; }
+  }
+  update(v, notch, brakeLv){
+    if (!this.ctx || this.muted) return;
+    try {
+      const t = this.ctx.currentTime;
+      const powered = notch > 0 && brakeLv === 0 && v > 0.05;
+      this.motorOsc.frequency.setTargetAtTime(80 + v * 22 + notch * 15, t, 0.1);
+      this.motorGain.gain.setTargetAtTime(powered ? 0.05 : (v > 0.5 ? 0.015 : 0), t, 0.15);
+      this.brakeGain.gain.setTargetAtTime(brakeLv > 0 && v > 0.5 ? Math.min(0.05, brakeLv * 0.008) : 0, t, 0.1);
+    } catch (e) {}
+  }
+  beep(freq, dur, type = 'sine', gain = 0.12){
+    if (!this.ctx || this.muted) return;
+    try {
+      const c = this.ctx, o = c.createOscillator(), g = c.createGain();
+      o.type = type; o.frequency.value = freq;
+      g.gain.setValueAtTime(gain, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + dur);
+      o.connect(g); g.connect(c.destination);
+      o.start(); o.stop(c.currentTime + dur);
+    } catch (e) {}
+  }
+  chimeArrive(){ [660, 880, 990, 880, 660].forEach((f, i) => setTimeout(() => this.beep(f, .3), i * 180)); }
+  chimeDepart(){ [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this.beep(f, .25, 'triangle'), i * 150)); }
+  warn(on){
+    if (on && !this.warnTimer) {
+      const fn = () => this.beep(1400, .18, 'square', 0.1);
+      fn(); this.warnTimer = setInterval(fn, 380);
+    } else if (!on && this.warnTimer) { clearInterval(this.warnTimer); this.warnTimer = null; }
+  }
+}
+
+/* =====================================================================
+   3Dシーン
+===================================================================== */
+class Scene3D {
+  constructor(canvas){
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x8ec9ee);
+    this.scene.fog = new THREE.Fog(0x8ec9ee, 200, 700);
+    this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+    this.cabView = true;
+
+    const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+    sun.position.set(60, 120, 40);
+    this.scene.add(sun, new THREE.AmbientLight(0xbfd8e8, 1.1));
+
+    this.buildWorld();
+    this.resize();
+    addEventListener('resize', () => this.resize());
+  }
+  resize(){
+    const w = innerWidth, h = innerHeight;
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+  }
+  buildWorld(){
+    const total = STATIONS[STATIONS.length - 1].s + 200;
+    // 地面
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(400, total + 600),
+      new THREE.MeshLambertMaterial({ color: 0x6cae5c }));
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set(0, -0.05, -total / 2);
+    this.scene.add(ground);
+    // バラストとレール（線路は -z 方向へ伸びる）
+    const ballast = new THREE.Mesh(
+      new THREE.BoxGeometry(5, .3, total + 300),
+      new THREE.MeshLambertMaterial({ color: 0x9b8a72 }));
+    ballast.position.set(0, .1, -total / 2);
+    this.scene.add(ballast);
+    const railMat = new THREE.MeshStandardMaterial({ color: 0xb9c4cc, metalness: .8, roughness: .35 });
+    for (const x of [-0.72, 0.72]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(.12, .16, total + 300), railMat);
+      rail.position.set(x, .33, -total / 2);
+      this.scene.add(rail);
+    }
+    // 枕木（Instanced）
+    const tieGeo = new THREE.BoxGeometry(2.2, .1, .3);
+    const tieMat = new THREE.MeshLambertMaterial({ color: 0x5a4632 });
+    const count = Math.floor((total + 300) / 3);
+    const ties = new THREE.InstancedMesh(tieGeo, tieMat, count);
+    const m4 = new THREE.Matrix4();
+    for (let i = 0; i < count; i++) { m4.setPosition(0, .27, -i * 3 + 100); ties.setMatrixAt(i, m4); }
+    this.scene.add(ties);
+
+    // 駅ホーム＋停止目標線
+    this.stopLines = [];
+    for (const st of STATIONS) {
+      const z = -st.s;
+      const plat = new THREE.Mesh(
+        new THREE.BoxGeometry(4, 1.1, 62),
+        new THREE.MeshLambertMaterial({ color: 0xd8d3c8 }));
+      plat.position.set(4.6, .55, z + 24);   // ホームは停止線より手前側に伸びる
+      this.scene.add(plat);
+      const roof = new THREE.Mesh(
+        new THREE.BoxGeometry(4.4, .15, 40),
+        new THREE.MeshLambertMaterial({ color: 0x3f6e8c }));
+      roof.position.set(4.6, 4.4, z + 20);
+      this.scene.add(roof);
+      for (const dz of [2, 38]) {
+        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, 3.3),
+          new THREE.MeshLambertMaterial({ color: 0x888888 }));
+        pillar.position.set(4.6, 2.75, z + dz); this.scene.add(pillar);
+      }
+      // 停止目標線（線路上の白線＋ホームの標識）
+      const line = new THREE.Mesh(new THREE.PlaneGeometry(3, .5),
+        new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      line.rotation.x = -Math.PI / 2; line.position.set(0, .28, z);
+      this.scene.add(line); this.stopLines.push(line);
+      const signCv = document.createElement('canvas'); signCv.width = 256; signCv.height = 128;
+      const sc = signCv.getContext('2d');
+      sc.fillStyle = '#fff'; sc.fillRect(0, 0, 256, 128);
+      sc.strokeStyle = '#d33'; sc.lineWidth = 10; sc.strokeRect(5, 5, 246, 118);
+      sc.fillStyle = '#d33'; sc.font = 'bold 52px sans-serif'; sc.textAlign = 'center';
+      sc.fillText('◆とまれ', 128, 80);
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(2, 1),
+        new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(signCv), side: THREE.DoubleSide }));
+      sign.position.set(4.6, 2.2, z); sign.rotation.y = -Math.PI / 2;
+      this.scene.add(sign);
+      // 駅名標
+      const nmCv = document.createElement('canvas'); nmCv.width = 512; nmCv.height = 160;
+      const nc = nmCv.getContext('2d');
+      nc.fillStyle = '#fff'; nc.fillRect(0, 0, 512, 160);
+      nc.fillStyle = '#2c7d4f'; nc.fillRect(0, 130, 512, 30);
+      nc.fillStyle = '#111'; nc.textAlign = 'center';
+      nc.font = 'bold 62px sans-serif'; nc.fillText(st.name, 256, 72);
+      nc.font = 'bold 34px sans-serif'; nc.fillText(st.kana, 256, 118);
+      const nm = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.06),
+        new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(nmCv), side: THREE.DoubleSide }));
+      nm.position.set(4.6, 3.1, z + 16); nm.rotation.y = -Math.PI / 2;
+      this.scene.add(nm);
+    }
+
+    // 信号機
+    this.signalMeshes = SIGNALS.map(sig => {
+      const g = new THREE.Group();
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(.09, .09, 5),
+        new THREE.MeshLambertMaterial({ color: 0x666e75 }));
+      pole.position.y = 2.5; g.add(pole);
+      const box = new THREE.Mesh(new THREE.BoxGeometry(.8, 2, .4),
+        new THREE.MeshLambertMaterial({ color: 0x22262a }));
+      box.position.y = 4.6; g.add(box);
+      const lamps = {};
+      [['g', 0x115522, 3.95], ['y', 0x554d11, 4.6], ['r', 0x551111, 5.25]].forEach(([k, col, y]) => {
+        const l = new THREE.Mesh(new THREE.SphereGeometry(.24, 16, 12),
+          new THREE.MeshStandardMaterial({ color: col, emissive: 0x000000 }));
+        l.position.set(0, y, .25); g.add(l); lamps[k] = l;
+      });
+      g.position.set(-2.6, 0, -sig.s);
+      this.scene.add(g);
+      return lamps;
+    });
+
+    // 街の風景（決め打ち配置）
+    const palette = [0xf2e3c9, 0xd9e8f5, 0xf5d9d9, 0xe3f2d9, 0xefe0f5];
+    for (let i = 0; i < 90; i++) {
+      const side = i % 2 ? 1 : -1;
+      const z = -(i * 19 % (total + 120));
+      const w = 4 + (i * 7) % 8, h = 4 + (i * 13) % 14;
+      const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, w),
+        new THREE.MeshLambertMaterial({ color: palette[i % palette.length] }));
+      b.position.set(side * (14 + (i * 5) % 22), h / 2, z);
+      this.scene.add(b);
+      if (i % 3 === 0) {
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(.2, .3, 2),
+          new THREE.MeshLambertMaterial({ color: 0x6b4a2b }));
+        const leaf = new THREE.Mesh(new THREE.SphereGeometry(1.5, 10, 8),
+          new THREE.MeshLambertMaterial({ color: 0x3f8f3f }));
+        trunk.position.set(side * 9, 1, z - 8); leaf.position.set(side * 9, 3, z - 8);
+        this.scene.add(trunk, leaf);
+      }
+    }
+    // 山（遠景）
+    for (let i = 0; i < 8; i++) {
+      const mt = new THREE.Mesh(new THREE.ConeGeometry(60 + i * 10, 70 + (i * 17) % 50, 4),
+        new THREE.MeshLambertMaterial({ color: 0x5f8f9f }));
+      mt.position.set((i % 2 ? 1 : -1) * (120 + i * 15), 20, -(i * 260 % (total + 400)));
+      this.scene.add(mt);
+    }
+
+    // 自分の電車（俯瞰用）
+    this.train = new THREE.Group();
+    const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(2.8, 3.2, 19),
+      new THREE.MeshStandardMaterial({ color: 0x2f9e6e, metalness: .2, roughness: .6 }));
+    bodyMesh.position.y = 1.9; this.train.add(bodyMesh);
+    const face = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.2, .3),
+      new THREE.MeshStandardMaterial({ color: 0x123 }));
+    face.position.set(0, 2.6, -9.6); this.train.add(face);
+    const bandMat = new THREE.MeshStandardMaterial({ color: 0xffd23e });
+    const band = new THREE.Mesh(new THREE.BoxGeometry(2.85, .4, 19.05), bandMat);
+    band.position.y = 1.3; this.train.add(band);
+    this.scene.add(this.train);
+  }
+  setSignal(i, state){
+    const lamps = this.signalMeshes[i];
+    lamps.g.material.emissive.setHex(state === 'g' ? 0x22ff77 : 0x000000);
+    lamps.y.material.emissive.setHex(state === 'y' ? 0xffd23e : 0x000000);
+    lamps.r.material.emissive.setHex(state === 'r' ? 0xff3333 : 0x000000);
+  }
+  update(s, v){
+    // 先頭位置 s(m) → z = -s
+    this.train.position.z = -s + 9.5;   // 車体中心
+    if (this.cabView) {
+      this.camera.position.set(0.8, 3.0, -s + 1.2);
+      this.camera.lookAt(0.4, 2.4, -s - 60);
+      this.train.visible = false;
+    } else {
+      this.camera.position.set(16, 22, -s + 30);
+      this.camera.lookAt(0, 0, -s - 20);
+      this.train.visible = true;
+    }
+    this.renderer.render(this.scene, this.camera);
+  }
+}
+
+/* =====================================================================
+   縦スライダー（運転台レバー）
+===================================================================== */
+class Lever {
+  constructor(el, handleEl, steps, prefix, onChange, topLabel){
+    this.el = el; this.handle = handleEl; this.steps = steps;
+    this.prefix = prefix; this.onChange = onChange;
+    this.value = 0;
+    // 目盛り
+    for (let i = 0; i <= steps; i++) {
+      const t = document.createElement('div');
+      t.className = 'tick';
+      t.textContent = (topLabel && i === steps) ? topLabel : i;
+      t.style.top = this.posFor(i);
+      el.appendChild(t);
+    }
+    const move = (clientY) => {
+      const r = el.getBoundingClientRect();
+      const pad = 30;
+      const ratio = 1 - Math.min(1, Math.max(0, (clientY - r.top - pad) / (r.height - pad * 2)));
+      this.set(Math.round(ratio * steps));
+    };
+    el.addEventListener('pointerdown', e => { el.setPointerCapture(e.pointerId); move(e.clientY); });
+    el.addEventListener('pointermove', e => { if (e.buttons || e.pointerType === 'touch') move(e.clientY); });
+    this.set(0);
+  }
+  posFor(v){
+    const pad = 30;
+    return `calc(${pad}px + (100% - ${pad * 2}px) * ${1 - v / this.steps})`;
+  }
+  set(v){
+    v = Math.min(this.steps, Math.max(0, v));
+    if (v === this.value && this.handle.dataset.init) return;
+    this.value = v;
+    this.handle.dataset.init = '1';
+    this.handle.style.top = this.posFor(v);
+    this.handle.textContent = this.prefix + v;
+    this.onChange(v);
+  }
+}
+
+/* =====================================================================
+   状態マシン（遷移条件を明示的に分離）
+===================================================================== */
+const StateNames = {
+  BEFORE_DEPART: '出発前', ACCELERATING: '加速中', CRUISING: '巡航中',
+  DECELERATING: '減速中', STOPPED: '停車中', EMERGENCY: '非常停止',
+  FINISHED: '終了',
+};
+
+class Game {
+  constructor(){
+    this.canvas = document.getElementById('gl');
+    this.scene3d = new Scene3D(this.canvas);
+    this.phys = new TrainPhysics();
+    this.sound = new Sound();
+    this.timers = new Timers();
+
+    this.state = 'BEFORE_DEPART';
+    this.stateT = 0;
+    this.gameClock = CFG.startClock;
+    this.nextStation = 1;              // これから向かう駅 index
+    this.records = [];                 // 各駅の成績
+    this.violations = 0;               // 赤信号無視
+    this.yellowOver = 0;               // 黄信号の速度超過
+    this.doorsOpen = true;
+    this.hardBrakeFlag = false;
+    this.finished = false;
+    this.passedSignals = new Set();
+    this.forcedSignals = new Map();    // テスト用：信号の強制
+    this.recentDecel = 0;
+
+    this.ui = {
+      clock: document.getElementById('clock'),
+      timetable: document.getElementById('timetable'),
+      stateLabel: document.getElementById('stateLabel'),
+      speedVal: document.getElementById('speedVal'),
+      speedBarFill: document.getElementById('speedBarFill'),
+      sigLamp: document.getElementById('sigLamp'),
+      sigText: document.getElementById('sigText'),
+      distText: document.getElementById('distText'),
+      msg: document.getElementById('msg'),
+      subMsg: document.getElementById('subMsg'),
+    };
+    this.buildTimetable();
+
+    this.notchLever = new Lever(
+      document.getElementById('notchLever'), document.getElementById('notchHandle'),
+      CFG.notchMax, 'N', v => { this.phys.notch = v; });
+    this.brakeLever = new Lever(
+      document.getElementById('brakeLever'), document.getElementById('brakeHandle'),
+      CFG.brakeMax, 'B', v => { this.phys.brake = v; }, '非常');
+
+    document.getElementById('viewBtn').addEventListener('click',
+      () => { this.scene3d.cabView = !this.scene3d.cabView; });
+    document.getElementById('muteBtn').addEventListener('click', (e) => {
+      this.sound.muted = !this.sound.muted;
+      e.currentTarget.textContent = this.sound.muted ? '🔇 おと' : '🔊 おと';
+      if (this.sound.muted) this.sound.warn(false);
+    });
+    document.getElementById('retryBtn').addEventListener('click', () => location.reload());
+
+    // 停車中は出発準備として扱う：初期状態はホームでドア開
+    this.timers.set('dwell', 2);
+    this.showMsg('しゅっぱつ しんこう！', 'ノッチを あげてね', 3);
+  }
+
+  buildTimetable(){
+    this.ui.timetable.innerHTML = STATIONS.map((st, i) => {
+      const t = SCHEDULE[i].arr ?? SCHEDULE[i].dep;
+      return `<div class="tt-cell" id="tt${i}">
+        <div class="tt-name"><ruby>${st.name}<rt>${st.kana}</rt></ruby></div>
+        <div class="tt-time">${fmtClock(t)}</div>
+        <div class="tt-eval" id="ttEval${i}"></div>
+      </div>`;
+    }).join('');
+    this.refreshTimetable();
+  }
+  refreshTimetable(){
+    STATIONS.forEach((_, i) => {
+      const c = document.getElementById('tt' + i);
+      c.classList.toggle('now', i === this.nextStation);
+      c.classList.toggle('done', i < this.nextStation);
+    });
+  }
+
+  /* ---------- 信号 ---------- */
+  signalState(i){
+    if (this.forcedSignals.has(i)) return this.forcedSignals.get(i);
+    const t = (this.gameClock - CFG.startClock + SIGNALS[i].phase) % SIG_CYCLE;
+    if (t < SIG_G) return 'g';
+    if (t < SIG_G + SIG_Y) return 'y';
+    return 'r';
+  }
+  nextSignalAhead(){
+    for (let i = 0; i < SIGNALS.length; i++)
+      if (SIGNALS[i].s > this.phys.s - 1) return i;
+    return -1;
+  }
+
+  /* ---------- メッセージ ---------- */
+  showMsg(main, sub = '', sec = 2.5){
+    this.ui.msg.innerHTML = main; this.ui.msg.classList.add('show');
+    this.ui.subMsg.innerHTML = sub; this.ui.subMsg.classList.toggle('show', !!sub);
+    clearTimeout(this._msgT);
+    this._msgT = setTimeout(() => {
+      this.ui.msg.classList.remove('show'); this.ui.subMsg.classList.remove('show');
+    }, sec * 1000);
+  }
+
+  /* ---------- 状態遷移条件（純粋な判定関数） ---------- */
+  cond(){
+    const v = this.phys.v, notch = this.phys.notch;
+    const braking = this.phys.brake > 0 || this.phys.eb;
+    return {
+      moving: v > 0.05,
+      stopped: v <= 0.05,
+      powering: notch > 0 && !braking,
+      braking,
+      nearStation: Math.abs(this.phys.s - STATIONS[this.nextStation]?.s) <= CFG.stopJudgeRange,
+      accelerating: this.phys.lastAccel > 0.08,
+      decelerating: this.phys.lastAccel < -0.08 && v > 0.05,
+    };
+  }
+
+  transition(to){
+    if (this.state === to) return;
+    this.state = to; this.stateT = 0;
+    this.onEnter(to);
+    this.ui.stateLabel.textContent = StateNames[to];
+  }
+
+  onEnter(st){
+    switch (st) {
+      case 'STOPPED': this.handleStationStop(); break;
+      case 'EMERGENCY':
+        this.phys.eb = true;
+        this.sound.warn(true);
+        this.showMsg('⚠️ <ruby>赤信号<rt>あかしんごう</rt></ruby>！', 'じどうで とまります', 4);
+        break;
+      case 'BEFORE_DEPART':
+        this.refreshTimetable();
+        break;
+    }
+  }
+
+  /* ---------- 状態ごとの更新（遷移条件を明示） ---------- */
+  updateState(dt){
+    const c = this.cond();
+    this.stateT += dt;
+    switch (this.state) {
+      case 'BEFORE_DEPART':
+        if (this.doorsOpen && this.timers.done('dwell')) {
+          this.doorsOpen = false;
+          this.sound.chimeDepart();
+          this.showMsg('ドアが しまりました', 'しゅっぱつ できるよ！', 2.5);
+        }
+        if (!this.doorsOpen && c.powering && c.moving) this.transition('ACCELERATING');
+        break;
+      case 'ACCELERATING':
+        if (c.stopped && !c.powering) this.transition(this.arrivable() ? 'STOPPED' : 'BEFORE_DEPART');
+        else if (c.decelerating) this.transition('DECELERATING');
+        else if (!c.accelerating && c.moving) this.transition('CRUISING');
+        break;
+      case 'CRUISING':
+        if (c.accelerating) this.transition('ACCELERATING');
+        else if (c.decelerating) this.transition('DECELERATING');
+        else if (c.stopped) this.transition(this.arrivable() ? 'STOPPED' : 'BEFORE_DEPART');
+        break;
+      case 'DECELERATING':
+        if (c.accelerating) this.transition('ACCELERATING');
+        else if (c.stopped) this.transition(this.arrivable() ? 'STOPPED' : 'BEFORE_DEPART');
+        else if (!c.decelerating) this.transition('CRUISING');
+        break;
+      case 'STOPPED':
+        // handleStationStop 内で dwell がセットされる。dwell 終了で次駅へ
+        if (this.timers.done('stationDwell')) {
+          if (this.nextStation >= STATIONS.length) { this.finish(); }
+          else {
+            this.doorsOpen = true;
+            this.timers.set('dwell', 1.5);
+            this.transition('BEFORE_DEPART');
+            this.showMsg(`つぎは <ruby>${STATIONS[this.nextStation].name}<rt>${STATIONS[this.nextStation].kana}</rt></ruby>`, 'ノッチを あげて しゅっぱつ！', 3);
+          }
+        }
+        break;
+      case 'EMERGENCY':
+        if (c.stopped && this.stateT > 1.2) {
+          this.phys.eb = false;
+          this.sound.warn(false);
+          if (this.brakeLever.value === 0 && this.notchLever.value === 0) {
+            this.showMsg('しんごうが <ruby>青<rt>あお</rt></ruby>になるまで まとう', '', 3);
+          }
+          this.transition('CRUISING'); // 停止→条件で BEFORE_DEPART/STOPPED に落ちる
+        }
+        break;
+    }
+  }
+
+  arrivable(){
+    const st = STATIONS[this.nextStation];
+    return st && Math.abs(this.phys.s - st.s) <= CFG.stopJudgeRange;
+  }
+
+  /* ---------- 駅停車処理 ---------- */
+  handleStationStop(){
+    const st = STATIONS[this.nextStation];
+    const errM = this.phys.s - st.s;                 // +で行きすぎ
+    const absCm = Math.round(Math.abs(errM) * 100);
+    const hard = this.hardBrakeFlag;
+    // 停止精度
+    let stopEval, stopScore;
+    const a = Math.abs(errM);
+    if (a <= 0.5) { stopEval = 'ピタッと！すごい！'; stopScore = 3; }
+    else if (a <= 2) { stopEval = 'じょうず！'; stopScore = 2; }
+    else if (a <= 5) { stopEval = 'おしい！'; stopScore = 1; }
+    else { stopEval = 'つぎは がんばろう'; stopScore = 0; }
+    // 時刻評価
+    const sched = SCHEDULE[this.nextStation].arr;
+    const diff = this.gameClock - sched;
+    let timeEval, timeScore;
+    if (Math.abs(diff) <= CFG.onTimeWindow) { timeEval = '定刻'; timeScore = 2; }
+    else if (diff < 0) { timeEval = '早着'; timeScore = 1; }
+    else { timeEval = '遅着'; timeScore = 1; }
+    if (timeEval === '早着' && hard) { timeScore = 0; }  // 急いで急ブレーキはNG
+    const hardPenalty = hard ? 1 : 0;
+
+    this.records.push({
+      station: st.name, kana: st.kana, errM, absCm,
+      stopEval, stopScore, timeEval, timeScore, diff, hard,
+    });
+    const dirTxt = a <= 0.5 ? '' : (errM > 0 ? '（いきすぎ）' : '（てまえ）');
+    const errTxt = a >= 1 ? `${a.toFixed(1)}m` : `${absCm}cm`;
+    this.showMsg(
+      `🚉 <ruby>${st.name}<rt>${st.kana}</rt></ruby>に とうちゃく！`,
+      `ずれ ${errTxt}${dirTxt} … ${stopEval} ／ ${timeEval}${hard ? ' ／ きゅうブレーキ⚠️' : ''}`, 5);
+    const evalEl = document.getElementById('ttEval' + this.nextStation);
+    if (evalEl) evalEl.textContent = `${timeEval}・${stopEval.replace('！すごい！', '')}`;
+    this.sound.chimeArrive();
+    this.hardBrakeFlag = false;
+    this.nextStation++;
+    this.refreshTimetable();
+    this.timers.set('stationDwell', CFG.dwellSec);
+  }
+
+  /* ---------- 信号監視 ---------- */
+  checkSignals(){
+    for (let i = 0; i < SIGNALS.length; i++) {
+      const sigS = SIGNALS[i].s;
+      if (!this.passedSignals.has(i) && this.phys.s >= sigS) {
+        this.passedSignals.add(i);
+        const st = this.signalState(i);
+        if (st === 'r') {
+          this.violations++;
+          this.transition('EMERGENCY');
+        } else if (st === 'y' && this.phys.v > CFG.yellowLimit + 0.5) {
+          this.yellowOver++;
+          this.sound.beep(900, .3, 'square');
+          this.showMsg('⚠️ <ruby>黄信号<rt>きしんごう</rt></ruby>は ゆっくり！', 'スピードを おとそう', 2.5);
+        }
+      }
+    }
+  }
+
+  /* ---------- オーバーラン監視 ---------- */
+  checkOverrun(){
+    const st = STATIONS[this.nextStation];
+    if (!st) return;
+    if (this.phys.s > st.s + CFG.overrunLimit && this.state !== 'STOPPED') {
+      // 通過してしまった → 強制停止して停車扱い
+      this.phys.eb = true;
+      if (this.phys.v <= 0.05) {
+        this.phys.eb = false;
+        this.hardBrakeFlag = true;
+        this.showMsg('オーバーラン！', 'とまれ線を すぎちゃった', 3);
+        this.transition('STOPPED');
+      }
+    }
+  }
+
+  finish(){
+    if (this.finished) return;
+    this.finished = true;
+    this.transition('FINISHED');
+    this.showResult();
+  }
+
+  showResult(){
+    const tbl = document.getElementById('resultTable');
+    let rows = `<tr><th><ruby>駅<rt>えき</rt></ruby></th>
+      <th>とまる<ruby>位置<rt>いち</rt></ruby></th><th><ruby>時刻<rt>じこく</rt></ruby></th></tr>`;
+    let total = 0, max = 0;
+    for (const r of this.records) {
+      total += r.stopScore + r.timeScore - (r.hard ? 1 : 0);
+      max += 5;
+      const errTxt = Math.abs(r.errM) >= 1 ? `${Math.abs(r.errM).toFixed(1)}m` : `${r.absCm}cm`;
+      rows += `<tr><td><ruby>${r.station}<rt>${r.kana}</rt></ruby></td>
+        <td>ずれ ${errTxt}<br>${r.stopEval}</td>
+        <td>${r.timeEval}${r.hard ? '<br>⚠️きゅうブレーキ' : ''}</td></tr>`;
+    }
+    total -= this.violations * 2 + this.yellowOver;
+    total = Math.max(0, total);
+    if (this.violations) rows += `<tr><td colspan="3">⚠️ <ruby>赤信号<rt>あかしんごう</rt></ruby>を ${this.violations}<ruby>回<rt>かい</rt></ruby> みのがした</td></tr>`;
+    tbl.innerHTML = rows;
+    const ratio = max ? total / max : 0;
+    let award, stars;
+    if (this.violations === 0 && ratio >= 0.85) { award = '🏆 マスターうんてんし！'; stars = '★★★'; }
+    else if (ratio >= 0.6) { award = '🥈 いちにんまえ うんてんし'; stars = '★★☆'; }
+    else if (ratio >= 0.35) { award = '🥉 みならい うんてんし'; stars = '★☆☆'; }
+    else { award = '🌱 これから うんてんし'; stars = '☆☆☆'; }
+    document.getElementById('starLine').textContent = stars;
+    document.getElementById('title-award').textContent = award;
+    document.getElementById('resultOverlay').style.display = 'flex';
+    this.sound.chimeArrive();
+  }
+
+  /* ---------- 毎フレーム更新 ---------- */
+  update(dt){
+    dt = Math.min(dt, 1 / 30);              // 120Hz iPad 対応クランプ
+    if (this.finished) { if (!TEST_MODE) this.scene3d.update(this.phys.s, 0); return; }
+
+    this.gameClock += dt * CFG.timeScale;
+    this.timers.update(dt);
+
+    const prevV = this.phys.v;
+    this.phys.step(dt);
+    this.recentDecel = (prevV - this.phys.v) / dt;
+    // 停止直前の減速度で急ブレーキ判定
+    if (prevV > 0.5 && this.phys.v <= 0.05 && this.recentDecel > CFG.hardBrakeDecel && !this.phys.eb) {
+      this.hardBrakeFlag = true;
+    }
+
+    this.checkSignals();
+    this.checkOverrun();
+    this.updateState(dt);
+    this.updateSignalsVisual();
+    this.updateHUD();
+    this.sound.update(this.phys.v, this.phys.notch, this.phys.eb ? CFG.brakeMax : this.phys.brake);
+    if (!TEST_MODE) this.scene3d.update(this.phys.s, this.phys.v);
+  }
+
+  updateSignalsVisual(){
+    SIGNALS.forEach((_, i) => this.scene3d.setSignal(i, this.signalState(i)));
+  }
+
+  updateHUD(){
+    this.ui.clock.textContent = fmtClock(this.gameClock, true);
+    const kmh = Math.round(this.phys.v * 3.6);
+    this.ui.speedVal.textContent = kmh;
+    this.ui.speedVal.style.color = kmh > 45 ? 'var(--yellow)' : 'var(--green)';
+    this.ui.speedBarFill.style.width = Math.min(100, (this.phys.v / CFG.maxSpeed) * 100) + '%';
+    const ni = this.nextSignalAhead();
+    if (ni >= 0) {
+      const st = this.signalState(ni);
+      this.ui.sigLamp.className = 'sig-lamp ' + st;
+      const d = Math.max(0, Math.round(SIGNALS[ni].s - this.phys.s));
+      const nm = { g: 'すすめ', y: 'ちゅうい', r: 'とまれ' }[st];
+      this.ui.sigText.innerHTML = `${nm} あと${d}m`;
+    } else {
+      this.ui.sigLamp.className = 'sig-lamp';
+      this.ui.sigText.textContent = 'しんごう なし';
+    }
+    const st = STATIONS[this.nextStation];
+    if (st) {
+      const d = st.s - this.phys.s;
+      this.ui.distText.textContent = d > 0.5
+        ? `つぎの駅まで ${Math.round(d)}m`
+        : (d < -0.5 ? `${Math.abs(d).toFixed(1)}m いきすぎ` : 'とまれ線！');
+    } else this.ui.distText.textContent = 'ゴール！';
+  }
+}
+
+function fmtClock(sec, withSec = false){
+  sec = Math.floor(sec);
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return withSec
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${h}:${String(m).padStart(2, '0')}`;
+}
+
+/* =====================================================================
+   起動
+===================================================================== */
+const game = new Game();
+
+document.getElementById('startBtn').addEventListener('click', () => {
+  game.sound.init();
+  document.getElementById('startOverlay').style.display = 'none';
+});
+
+// ダブルタップズーム防止
+let lastTouch = 0;
+document.addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - lastTouch < 350) e.preventDefault();
+  lastTouch = now;
+}, { passive: false });
+document.addEventListener('gesturestart', e => e.preventDefault());
+
+if (!TEST_MODE) {
+  let prev = performance.now();
+  const loop = (now) => {
+    const dt = (now - prev) / 1000; prev = now;
+    game.update(dt);
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+} else {
+  // テストフック：RAFを止め、決定論的にステップ実行
+  window.__test = {
+    game,
+    start(){ document.getElementById('startBtn').click(); },
+    setNotch(v){ game.notchLever.set(v); },
+    setBrake(v){ game.brakeLever.set(v); },
+    state(){ return game.state; },
+    speed(){ return game.phys.v; },
+    pos(){ return game.phys.s; },
+    clock(){ return game.gameClock; },
+    signals(){ return SIGNALS.map((_, i) => game.signalState(i)); },
+    forceSignal(i, st){ if (st == null) game.forcedSignals.delete(i); else game.forcedSignals.set(i, st); },
+    records(){ return game.records; },
+    violations(){ return game.violations; },
+    nextStation(){ return game.nextStation; },
+    doorsOpen(){ return game.doorsOpen; },
+    resultShown(){ return document.getElementById('resultOverlay').style.display === 'flex'; },
+    skipDwell(){ ['dwell', 'stationDwell'].forEach(n => { if (game.timers.map.has(n)) game.timers.map.set(n, 0); }); },
+    fastForward(sec, step = 1 / 60){
+      const n = Math.round(sec / step);
+      for (let i = 0; i < n; i++) game.update(step);
+    },
+    renderOnce(){ game.scene3d.update(game.phys.s, game.phys.v); },
+  };
+}
+</script>
+</body>
+</html>
