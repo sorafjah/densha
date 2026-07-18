@@ -12,7 +12,8 @@
     --amber:#ffb547; --green:#3ddc84; --red:#ff5a5a; --yellow:#ffd93d;
     --ink:#f2f6f9; --sub:#9fb2c1;
   }
-  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent;
+    touch-action:none; -ms-touch-action:none; }
   html,body{ width:100%; height:100%; overflow:hidden; touch-action:none;
     font-family:"BIZ UDPGothic", sans-serif; background:#000; color:var(--ink);
     user-select:none; -webkit-user-select:none; }
@@ -226,6 +227,7 @@ const CFG = {
   dwellSec: 6,                  // 停車時間（実時間秒）
   onTimeWindow: 20,             // 定刻とみなす誤差（ゲーム内秒）
   hardBrakeDecel: 2.6,          // 停止直前この減速度以上なら急ブレーキ判定
+  jointSpacing: 12.5,           // レール継ぎ目間隔(m)：ガタンゴトン音のトリガー間隔
 };
 
 const STATIONS = [
@@ -334,13 +336,26 @@ class Sound {
       this.brakeSrc.start();
     } catch (e) { this.ctx = null; }
   }
+  // 速度に応じたクロスフェード比率（0=ウィーン優勢、1=ガタンゴトン優勢）をなめらかに算出
+  crossfadeRatio(v){
+    const FADE_LOW = 3, FADE_HIGH = 10; // 約11km/h〜36km/hの間でフェード
+    let t = (v - FADE_LOW) / (FADE_HIGH - FADE_LOW);
+    t = Math.min(1, Math.max(0, t));
+    return t * t * (3 - 2 * t); // smoothstep
+  }
   update(v, notch, brakeLv){
     if (!this.ctx || this.muted) return;
     try {
       const t = this.ctx.currentTime;
       const powered = notch > 0 && brakeLv === 0 && v > 0.05;
+      const cf = this.crossfadeRatio(v);   // 速度が乗るほど1に近づく
+      this.lastCrossfade = cf;             // デバッグ/テスト用
       this.motorOsc.frequency.setTargetAtTime(80 + v * 22 + notch * 15, t, 0.1);
-      this.motorGain.gain.setTargetAtTime(powered ? 0.05 : (v > 0.5 ? 0.015 : 0), t, 0.15);
+      const motorBase = powered ? 0.05 : (v > 0.5 ? 0.015 : 0);
+      // 速度が乗るとウィーン音をフェードアウトし、ガタンゴトンへ入れ替える
+      const motorTarget = motorBase * (1 - cf);
+      this.lastMotorGainTarget = motorTarget;  // デバッグ/テスト用
+      this.motorGain.gain.setTargetAtTime(motorTarget, t, 0.5);
       this.brakeGain.gain.setTargetAtTime(brakeLv > 0 && v > 0.5 ? Math.min(0.05, brakeLv * 0.008) : 0, t, 0.1);
     } catch (e) {}
   }
@@ -355,8 +370,36 @@ class Sound {
       o.start(); o.stop(c.currentTime + dur);
     } catch (e) {}
   }
+  // レールの継ぎ目を通過するときの「ガタンゴトン」音。ウィーン音とクロスフェードしながらフェードインする
+  clack(v){
+    if (!this.ctx || this.muted) return;
+    const cf = this.crossfadeRatio(v);   // ウィーン音のフェードアウトと同じ比率でフェードイン
+    if (cf <= 0.03) return;
+    try {
+      const c = this.ctx, t0 = c.currentTime;
+      const baseGain = 0.05 + cf * 0.24;
+      const mkThunk = (delay, freqMul, gMul) => {
+        const dur = 0.1;
+        const len = Math.max(1, Math.floor(c.sampleRate * dur));
+        const buf = c.createBuffer(1, len, c.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+        const src = c.createBufferSource(); src.buffer = buf;
+        const bp = c.createBiquadFilter();
+        bp.type = 'bandpass'; bp.frequency.value = 210 * freqMul + cf * 70; bp.Q.value = 1.3;
+        const g = c.createGain();
+        g.gain.setValueAtTime(baseGain * gMul, t0 + delay);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + delay + dur);
+        src.connect(bp); bp.connect(g); g.connect(c.destination);
+        src.start(t0 + delay); src.stop(t0 + delay + dur + 0.02);
+      };
+      mkThunk(0, 1, 1);          // ガタン
+      mkThunk(0.09, 0.82, 0.85); // ゴトン
+    } catch (e) {}
+  }
   chimeArrive(){ [660, 880, 990, 880, 660].forEach((f, i) => setTimeout(() => this.beep(f, .3), i * 180)); }
   chimeDepart(){ [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this.beep(f, .25, 'triangle'), i * 150)); }
+  signalGreen(){ [740, 988].forEach((f, i) => setTimeout(() => this.beep(f, .22, 'sine', 0.11), i * 140)); }
   warn(on){
     if (on && !this.warnTimer) {
       const fn = () => this.beep(1400, .18, 'square', 0.1);
@@ -623,6 +666,9 @@ class Game {
     this.passedSignals = new Set();
     this.forcedSignals = new Map();    // テスト用：信号の強制
     this.recentDecel = 0;
+    this.clackDist = 0;   // レール継ぎ目（ガタンゴトン）の走行距離カウンタ
+    this.lastNearSigIndex = -1;  // 直近で監視していた「次の信号」のインデックス
+    this.lastNearSigState = null; // その信号の直前の色（青になった瞬間を検知するため）
 
     this.ui = {
       clock: document.getElementById('clock'),
@@ -656,7 +702,7 @@ class Game {
 
     // 停車中は出発準備として扱う：初期状態はホームでドア開
     this.timers.set('dwell', 2);
-    this.showMsg('しゅっぱつ しんこう！', 'ノッチを あげてね', 3);
+    this.showMsg('🚃 うんてん を はじめよう！', 'ドアが しまるまで まってね', 2.2);
   }
 
   buildTimetable(){
@@ -700,6 +746,16 @@ class Game {
     this._msgT = setTimeout(() => {
       this.ui.msg.classList.remove('show'); this.ui.subMsg.classList.remove('show');
     }, sec * 1000);
+  }
+  // メッセージを順番につないで表示（例：「ドアが閉まりました」→少し間を置いて「ノッチを上げて」）
+  showMsgChain(steps){
+    clearTimeout(this._msgChainT);
+    let delay = 0;
+    steps.forEach((s, i) => {
+      const t = setTimeout(() => this.showMsg(s.main, s.sub || '', s.sec ?? 2.5), delay * 1000);
+      if (i === 0) this._msgChainT = t;
+      delay += (s.sec ?? 2.5) + (s.gap ?? 0.3);
+    });
   }
 
   /* ---------- 状態遷移条件（純粋な判定関数） ---------- */
@@ -747,7 +803,10 @@ class Game {
         if (this.doorsOpen && this.timers.done('dwell')) {
           this.doorsOpen = false;
           this.sound.chimeDepart();
-          this.showMsg('ドアが しまりました', 'しゅっぱつ できるよ！', 2.5);
+          this.showMsgChain([
+            { main: 'ドアが しまりました', sub: '', sec: 2 },
+            { main: 'ノッチを あげて しゅっぱつ！', sub: '', sec: 3 },
+          ]);
         }
         if (!this.doorsOpen && c.powering && c.moving) this.transition('ACCELERATING');
         break;
@@ -774,7 +833,7 @@ class Game {
             this.doorsOpen = true;
             this.timers.set('dwell', 1.5);
             this.transition('BEFORE_DEPART');
-            this.showMsg(`つぎは <ruby>${STATIONS[this.nextStation].name}<rt>${STATIONS[this.nextStation].kana}</rt></ruby>`, 'ノッチを あげて しゅっぱつ！', 3);
+            this.showMsg(`つぎは <ruby>${STATIONS[this.nextStation].name}<rt>${STATIONS[this.nextStation].kana}</rt></ruby>`, '', 2.5);
           }
         }
         break;
@@ -917,6 +976,7 @@ class Game {
     this.timers.update(dt);
 
     const prevV = this.phys.v;
+    const prevS = this.phys.s;
     this.phys.step(dt);
     this.recentDecel = (prevV - this.phys.v) / dt;
     // 停止直前の減速度で急ブレーキ判定
@@ -924,10 +984,23 @@ class Game {
       this.hardBrakeFlag = true;
     }
 
+    // レール継ぎ目の「ガタンゴトン」音：走行距離ベースで一定間隔ごとに鳴らす
+    const movedS = this.phys.s - prevS;
+    if (movedS > 0) {
+      this.clackDist += movedS;
+      while (this.clackDist >= CFG.jointSpacing) {
+        this.clackDist -= CFG.jointSpacing;
+        this.sound.clack(this.phys.v);
+      }
+    } else {
+      this.clackDist = 0;
+    }
+
     this.checkSignals();
     this.checkOverrun();
     this.updateState(dt);
     this.updateSignalsVisual();
+    this.checkSignalGreenAlert();
     this.updateHUD();
     this.sound.update(this.phys.v, this.phys.notch, this.phys.eb ? CFG.brakeMax : this.phys.brake);
     if (!TEST_MODE) this.scene3d.update(this.phys.s, this.phys.v);
@@ -935,6 +1008,28 @@ class Game {
 
   updateSignalsVisual(){
     SIGNALS.forEach((_, i) => this.scene3d.setSignal(i, this.signalState(i)));
+  }
+
+  // 前方の信号が「青になった瞬間」を検知して知らせる
+  checkSignalGreenAlert(){
+    const ni = this.nextSignalAhead();
+    if (ni < 0) { this.lastNearSigIndex = -1; this.lastNearSigState = null; return; }
+    const st = this.signalState(ni);
+    if (ni !== this.lastNearSigIndex) {
+      // 注目する信号が切り替わったタイミングでは通知せず、基準の色だけ記録する
+      this.lastNearSigIndex = ni;
+      this.lastNearSigState = st;
+      return;
+    }
+    // 「赤信号で止まっていた」場面の返事としてのみ表示する：
+    // その信号のすぐ手前で、ほぼ停止している時だけ対象にする
+    const distToSig = Math.abs(SIGNALS[ni].s - this.phys.s);
+    const stoppedForThisSignal = this.phys.v < 0.3 && distToSig < 30;
+    if (stoppedForThisSignal && this.lastNearSigState !== 'g' && st === 'g') {
+      this.sound.signalGreen();
+      this.showMsg('🟢 しんごうが 青に なりました！', 'すすんで いいよ', 2.5);
+    }
+    this.lastNearSigState = st;
   }
 
   updateHUD(){
@@ -982,14 +1077,30 @@ document.getElementById('startBtn').addEventListener('click', () => {
   document.getElementById('startOverlay').style.display = 'none';
 });
 
-// ダブルタップズーム防止
-let lastTouch = 0;
+// ダブルタップズーム防止（多重ガード）
+let lastTouchEnd = 0;
+document.addEventListener('touchstart', e => {
+  if (e.touches.length > 1) e.preventDefault();       // ピンチズーム防止
+}, { passive: false });
 document.addEventListener('touchend', e => {
   const now = Date.now();
-  if (now - lastTouch < 350) e.preventDefault();
-  lastTouch = now;
+  if (now - lastTouchEnd <= 400) e.preventDefault();    // ダブルタップズーム防止
+  lastTouchEnd = now;
 }, { passive: false });
+document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
 document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('gesturechange', e => e.preventDefault());
+document.addEventListener('gestureend', e => e.preventDefault());
+// iOSでvisualViewportが拡大された場合の保険リセット
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    if (window.visualViewport.scale > 1.001) {
+      document.body.style.transform = `scale(${1 / window.visualViewport.scale})`;
+      document.body.style.transformOrigin = 'top left';
+      requestAnimationFrame(() => { document.body.style.transform = ''; });
+    }
+  });
+}
 
 if (!TEST_MODE) {
   let prev = performance.now();
@@ -1011,6 +1122,8 @@ if (!TEST_MODE) {
     pos(){ return game.phys.s; },
     clock(){ return game.gameClock; },
     signals(){ return SIGNALS.map((_, i) => game.signalState(i)); },
+    signalPositions(){ return SIGNALS.map(s => s.s); },
+    teleport(s, v = 0){ game.phys.body.position.x = s; game.phys.body.velocity.x = v; },
     forceSignal(i, st){ if (st == null) game.forcedSignals.delete(i); else game.forcedSignals.set(i, st); },
     records(){ return game.records; },
     violations(){ return game.violations; },
