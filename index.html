@@ -669,6 +669,7 @@ class Game {
     this.clackDist = 0;   // レール継ぎ目（ガタンゴトン）の走行距離カウンタ
     this.lastNearSigIndex = -1;  // 直近で監視していた「次の信号」のインデックス
     this.lastNearSigState = null; // その信号の直前の色（青になった瞬間を検知するため）
+    this.emergencySignalIndex = null; // 赤信号自動停車の原因になった信号（青に変わったら知らせる）
 
     this.ui = {
       clock: document.getElementById('clock'),
@@ -905,6 +906,7 @@ class Game {
         const st = this.signalState(i);
         if (st === 'r') {
           this.violations++;
+          this.emergencySignalIndex = i;   // どの信号が原因で自動停車したかを記録
           this.transition('EMERGENCY');
         } else if (st === 'y' && this.phys.v > CFG.yellowLimit + 0.5) {
           this.yellowOver++;
@@ -1001,6 +1003,7 @@ class Game {
     this.updateState(dt);
     this.updateSignalsVisual();
     this.checkSignalGreenAlert();
+    this.checkEmergencySignalGreen();
     this.updateHUD();
     this.sound.update(this.phys.v, this.phys.notch, this.phys.eb ? CFG.brakeMax : this.phys.brake);
     if (!TEST_MODE) this.scene3d.update(this.phys.s, this.phys.v);
@@ -1030,6 +1033,16 @@ class Game {
       this.showMsg('🟢 しんごうが 青に なりました！', 'すすんで いいよ', 2.5);
     }
     this.lastNearSigState = st;
+  }
+
+  // 赤信号で自動停車した後、その信号が青に変わったら知らせる
+  checkEmergencySignalGreen(){
+    if (this.emergencySignalIndex === null) return;
+    if (this.signalState(this.emergencySignalIndex) === 'g') {
+      this.sound.signalGreen();
+      this.showMsg('🟢 しんごうが 青に なりました！', 'すすんで いいよ', 2.5);
+      this.emergencySignalIndex = null;  // 一度知らせたら追跡終了
+    }
   }
 
   updateHUD(){
