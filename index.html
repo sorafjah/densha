@@ -122,6 +122,67 @@
   #resultTable th{ background:rgba(255,255,255,.08); }
   #title-award{ font-size:30px; color:var(--amber); font-weight:700; }
   .stars{ font-size:26px; color:var(--yellow); letter-spacing:4px; }
+/* スマホ用レイアウト調整2 */
+@media (orientation:portrait) and (max-width:500px) {
+  #topbar { flex-wrap:wrap; gap:6px; padding-top:6px; }
+  #clockPlate { min-width:0; padding:4px 10px; }
+  #clock { font-size:20px; }
+  #statePlate { margin-left:auto; min-width:0; padding:4px 10px; }
+  #timetable { order:3; flex:1 1 100%; padding:4px 6px; gap:4px; }
+  .tt-name { font-size:11px; }
+  .tt-time { font-size:13px; }
+  .tt-eval { font-size:10px; height:12px; }
+  #cabPanel { height:236px; gap:4px; padding-left:calc(6px + env(safe-area-inset-left)); padding-right:calc(6px + env(safe-area-inset-right)); }
+  .lever-block { width:88px; }
+  .lever { width:80px; }
+  .handle { width:72px; height:42px; }
+  #speedVal { font-size:38px; }
+  #infoRow { gap:4px; flex-direction:column; align-items:stretch; }
+  .info-chip { font-size:12px; padding:2px 6px; min-height:28px; justify-content:center; }
+  .btn { padding:2px 8px; }
+  #msg { top:30%; font-size:24px; }
+  #subMsg { top:42%; font-size:15px; }
+}
+@media (orientation:landscape) and (max-height:500px) {
+  #topbar { padding-top:6px; gap:6px; }
+  .plate { padding:3px 8px; }
+  #clockPlate { min-width:0; }
+  #clock { font-size:22px; }
+  .tt-name { font-size:12px; }
+  .tt-time { font-size:14px; }
+  .tt-eval { height:12px; font-size:10px; }
+  #cabPanel { top:72px; height:auto; background:none; border-top:none; pointer-events:none;
+    padding-top:0; padding-bottom:calc(6px + env(safe-area-inset-bottom)); }
+  .lever-block { pointer-events:auto; width:92px; background:rgba(28,39,51,.85); border:2px solid #46596c;
+    border-radius:14px; padding:2px 4px 6px; }
+  .lever-title { font-size:13px; margin-bottom:0; }
+  .lever { width:78px; }
+  .handle { width:70px; height:38px; font-size:14px; }
+  #gauges { flex:0 1 460px; margin:0 auto; align-self:flex-end; pointer-events:auto; gap:4px 8px;
+    flex-direction:row; flex-wrap:wrap; justify-content:center; align-items:center;
+    background:rgba(28,39,51,.78); border:2px solid #46596c; border-radius:14px; padding:4px 8px 6px; }
+  #speedo { display:flex; align-items:center; gap:6px; order:1; }
+  #btnRow { order:2; gap:6px; }
+  #speedVal { font-size:28px; min-width:2.2em; text-align:right; }
+  #speedo .lbl { font-size:11px; }
+  #speedBar { width:120px; height:8px; margin:0; }
+  #infoRow { order:3; width:100%; flex-wrap:nowrap; gap:4px; }
+  .info-chip { font-size:12px; padding:2px 8px; min-height:26px; }
+  .btn { min-height:40px; font-size:13px; padding:2px 10px; }
+  #msg { top:30%; font-size:24px; }
+  #subMsg { top:44%; font-size:15px; }
+  .overlay { justify-content:flex-start; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y; gap:8px; padding:10px; }
+  .overlay > :first-child { margin-top:auto; }
+  .overlay > :last-child { margin-bottom:auto; }
+  .overlay h1 { font-size:24px; }
+  .overlay p { font-size:15px; line-height:1.7; }
+  .bigbtn { font-size:20px; padding:10px 36px; }
+  #resultTable { font-size:13px; }
+  #resultTable th, #resultTable td { padding:3px 8px; }
+  #title-award { font-size:22px; }
+  .stars { font-size:20px; }
+}
+/* /スマホ用レイアウト調整2 */
 </style>
 </head>
 <body>
